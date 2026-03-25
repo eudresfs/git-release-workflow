@@ -1,8 +1,7 @@
 ---
-
 description: Create safe, conventional commits from the current staged snapshot
 allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git log:*), Bash(git push:*), Bash(git reset:*), Bash(git rev-parse:*), Bash(git grep:*), Bash(node:*), Bash(pnpm:*), Bash(npm:*), Bash(bun:*), Bash(cat:*), Bash(diff:*), Bash(rg:*), Bash(mktemp:*)
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 # /commit
 
