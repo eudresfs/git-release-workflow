@@ -1,8 +1,7 @@
 ---
-
 description: Set up commit hooks and semantic-release for this repository
 allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git rev-parse:*), Bash(git branch:*), Bash(git symbolic-ref:*), Bash(cat:*), Bash(node:*), Bash(pnpm:*), Bash(npm:*), Bash(bun:*), Bash(mkdir:*), Bash(chmod:*), Bash(test:*), Bash(rg:*), Bash(ls:*)
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 # /setup-release
 
