@@ -1,330 +1,417 @@
 ---
-allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git log:*), Bash(git push:*), Bash(git worktree:*), Bash(git reset:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(node:*), Bash(pnpm:*), Bash(npm:*), Bash(cat:*), Bash(diff:*)
-argument-hint: [message] | --no-verify | --all-in-one
-description: Create well-formatted commits using conventional commit format, then offer push. Requires /setup-release to have been run first.
-model: sonnet
----
 
-# Smart Git Commit
+description: Create safe, conventional commits from the current staged snapshot
+allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git log:*), Bash(git push:*), Bash(git reset:*), Bash(git rev-parse:*), Bash(git grep:*), Bash(node:*), Bash(pnpm:*), Bash(npm:*), Bash(bun:*), Bash(cat:*), Bash(diff:*), Bash(rg:*), Bash(mktemp:*)
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-Create well-formatted commit: $ARGUMENTS
+# /commit
 
-> **Prerequisite:** this command assumes `/setup-release` has already been run in this repository (commitlint, Husky, semantic-release configured). Versioning and changelog are handled automatically by the CI pipeline on push to `main` — do not bump versions manually.
+Create one or more **safe, conventional commits** from the **current staged snapshot**.
 
-## Current Repository State
+This command is designed to avoid accidental inclusion of unrelated or unstaged changes. It plans commits from what is staged, validates risk conditions, optionally runs project lint, and only then creates commits.
 
-- Git status: !`git status --porcelain`
-- Current branch: !`git branch --show-current`
-- Repo root: !`git rev-parse --show-toplevel`
-- Staged changes: !`git diff --cached --stat`
-- Unstaged changes: !`git diff --stat`
-- Recent commits: !`git log --oneline -5`
+## Behavior Summary
 
-## What This Command Does
+* Uses the **staged snapshot** as the source of truth
+* Never silently pulls additional unstaged changes into scope
+* Supports:
 
-1. Unless `--no-verify` is passed, runs lint to catch issues early
-2. Scans staged/modified files for secrets before any staging
-3. If 0 files are staged, lists modified/untracked files and asks the user what to do
-4. Runs `git diff` to understand what changes are being committed
-5. **By default, splits changes into isolated commits per concern using worktree isolation** — unless `--all-in-one` is passed
-6. Presents the proposed commit plan and asks for confirmation before executing
-7. After all commits, offers push to remote
+  * single commit mode
+  * safe file-level split into multiple commits
+  * limited hunk-level splitting only when it is actually safe
+* Uses **Conventional Commits**
+* Can optionally push after commit creation
+* Refuses unsafe automation when staged and unstaged changes overlap in the same file
 
-## Shell State Warning
+## Flags
 
-**Shell state does NOT persist between tool invocations.** A `cd` executed in one call has no effect on the next. Always use `git -C "$REPO_ROOT"` with the absolute repo root path for every git command. Capture the root once:
+* `--skip-lint`: skip command-level lint
+* `--no-verify`: alias for `--skip-lint` for backward compatibility, but do **not** pass `--no-verify` to `git commit`
+* `--all-in-one`: create a single commit from the full staged set
+* `--push`: ask to push after successful commit creation
 
-```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-```
+## Pre-flight Checks
 
-Then use it consistently:
+Abort with a clear message if any of these fail:
 
-```bash
-git -C "$REPO_ROOT" add src/auth/login.ts
-git -C "$REPO_ROOT" commit -m "feat(auth): add login handler"
-```
+* current directory is inside a git repository
+* repository root can be resolved with `git rev-parse --show-toplevel`
+* repository has at least one staged change before commit creation begins
 
-Never rely on `cd` to set context between steps.
-
-## Secrets Check — Before Any Staging
-
-Before staging any file, scan for accidental secrets:
+Determine:
 
 ```bash
-git -C "$REPO_ROOT" diff --name-only
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+CURRENT_BRANCH="$(git -C "$REPO_ROOT" branch --show-current)"
 ```
 
-Flag and refuse to stage files matching these patterns:
+## Setup Prerequisite Check
 
-- `.env`, `.env.*` (except `.env.example`, `.env.template`)
-- `*credentials*`, `*secret*`, `*private_key*`
-- Files containing patterns like `sk-`, `ghp_`, `xoxb-`, `AKIA` (common API key prefixes)
+This command expects release/commit tooling to already exist.
 
-If a risky file is detected, present:
+Check for these files at the repository root:
 
+* `commitlint.config.js`
+* `.husky/commit-msg`
+
+If either is missing, stop and present:
+
+```text
+This repository is missing commit hook setup.
+Run /setup-release first, then re-run /commit.
 ```
-⚠ Potential secret detected: <filename>
+
+## Package Manager Detection
+
+Detect the package manager once and use it consistently for this run.
+
+Detection order:
+
+1. `pnpm-lock.yaml` → `pnpm`
+2. `bun.lockb` → `bun`
+3. `package-lock.json` → `npm`
+4. `package.json.packageManager`, if present
+5. otherwise: unknown
+
+If package manager is unknown, skip command-level lint and continue with commit planning.
+
+## Command-level Lint
+
+Unless `--skip-lint` or `--no-verify` is passed, run exactly one lint command based on detected package manager:
+
+* pnpm:
+
+  ```bash
+  pnpm lint
+  ```
+* bun:
+
+  ```bash
+  bun run lint
+  ```
+* npm:
+
+  ```bash
+  npm run lint
+  ```
+
+If `package.json` has no `lint` script, print:
+
+```text
+No lint script found — skipping command-level lint.
+```
+
+Do not use fallback chains like `pnpm lint || npm run lint`.
+
+If lint fails, present:
+
+```text
+Lint failed.
+
 How would you like to proceed?
 
-  1. Exclude this file and continue staging the rest (recommended)
-  2. Review the file content before deciding
+  1. Fix issues and re-run /commit
+  2. Continue anyway
   3. Abort
 ```
 
-## Commit Message Language
+Only continue if the user explicitly chooses to continue.
 
-- **The description part of commit messages must follow the user's language** — detect it from the conversation context
-- If the user writes in Portuguese, commit descriptions must be in Portuguese
-- If the user writes in English, commit descriptions must be in English
-- The `type(scope):` prefix is always in English regardless of language
-- Scope names are code identifiers and must always match the codebase naming convention (never translate them)
-- Language override: if the user explicitly requests a different language for commits, honor that for the entire session
+## Scope of Changes
 
-Examples (Portuguese user):
+This command treats the **staged snapshot** as the exact content in scope.
 
-- `feat(auth): adiciona suporte a refresh token JWT`
-- `fix(pagamento): remove limite padrão de 100 nos filtros avançados`
-- `refactor(cidadao): simplifica lógica de validação de endereço`
-- `docs: atualiza documentação da API para novos endpoints`
+### If files are already staged
 
-Examples (English user):
+* Use only the staged snapshot
+* Do not auto-stage additional files
+* Do not expand scope silently
 
-- `feat(auth): add JWT refresh token support`
-- `fix(payment): remove default limit of 100 in advanced filters`
-- `refactor(citizen): simplify address validation logic`
-- `docs: update API documentation for new endpoints`
+### If nothing is staged
 
-## Commit Description Quality Rules
+List modified and untracked files:
 
-Write descriptions that communicate **user-facing impact**, not implementation details.
-
-**Lead with the effect, not the mechanism:**
-- ✅ `fix(auth): prevent login crash on empty email`
-- ❌ `fix(auth): add null check in validateEmail()`
-
-**Never mention file names, function names, or module internals:**
-- ✅ `feat(reports): add bulk CSV export`
-- ❌ `feat(reports): implement exportToCsv in ReportService`
-
-**Be specific enough to be useful without being technical:**
-- ✅ `fix(pagamento): corrige totais incorretos no resumo de cobrança`
-- ❌ `fix(pagamento): fix bug`
-
-**One logical change per commit — if you can't summarize it in one line, it should be split.**
-
-## Commit Message Rules — STRICTLY ENFORCED
-
-- **NO emojis** of any kind in commit messages
-- **NO signatures**, footers, "Co-authored-by", "Generated by", "Signed-off-by", or any trailer lines
-- Format: `<type>(<scope>): <description>` — scope is optional
-- Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`, `revert`, `db`
-- Present tense, imperative mood
-- First line under 72 characters
-- If a body is needed, separate with a blank line — no trailers
-
-Bad examples (never do these):
-
-- `✨ feat: add feature` — has emoji
-- `feat: add feature\n\nCo-authored-by: Claude <noreply@anthropic.com>` — has signature
-- `wip: half-done thing` — wip commits must never reach the repository
-
-## Nothing Staged: Prompt
-
-If 0 files are staged, list all modified/untracked files and present:
-
+```bash
+git -C "$REPO_ROOT" status --short
 ```
+
+Then present:
+
+```text
 No files are staged. How would you like to proceed?
 
-  1. Stage all files listed above and continue (recommended)
+  1. Stage all listed files and continue
   2. Let me stage files manually, then re-run
   3. Abort
 ```
 
-Wait for the user's choice.
+If the user chooses option 1, run:
 
-## Commit Plan: Confirmation Prompt
-
-Present the full plan before doing anything. Format:
-
+```bash
+git -C "$REPO_ROOT" add -A
 ```
+
+Then re-read the staged diff and continue.
+
+If, after this step, there is still no staged content, stop.
+
+## Mixed Staged/Unstaged Overlap Gate
+
+Before planning a split, compare:
+
+```bash
+git -C "$REPO_ROOT" diff --cached --name-only
+git -C "$REPO_ROOT" diff --name-only
+```
+
+If any file path appears in both outputs, that file contains both staged and unstaged changes.
+
+In that case, automatic split is unsafe because re-staging from the working tree could accidentally include unstaged hunks.
+
+Stop and present:
+
+```text
+Some files contain both staged and unstaged changes.
+
+Automatic split would be unsafe because re-staging from the working tree could pull in unstaged hunks.
+
+How would you like to proceed?
+
+  1. I will finish staging/discarding changes in those files, then re-run
+  2. Commit the current staged snapshot as a single commit
+  3. Abort
+```
+
+If the user chooses option 2, force `--all-in-one` behavior for this run.
+
+## Secrets Check
+
+Run the secrets check after the final staged set is known and before any commit is created.
+
+### Filename-based risk check
+
+Inspect staged file paths:
+
+```bash
+git -C "$REPO_ROOT" diff --cached --name-only -z
+```
+
+Flag paths matching patterns such as:
+
+* `.env`
+* `.env.*` except `.env.example` and `.env.template`
+* `*credentials*`
+* `*secret*`
+* `*private_key*`
+
+### Content-based risk check
+
+Inspect staged content from the index only:
+
+```bash
+git -C "$REPO_ROOT" grep --cached -n -I -E 'sk-|ghp_|xoxb-|AKIA' -- .
+```
+
+If a risky file or token-like pattern is detected, stop and present:
+
+```text
+Potential secret detected: <filename>
+
+How would you like to proceed?
+
+  1. Exclude this file and continue
+  2. Review the file content before deciding
+  3. Abort
+```
+
+Do not continue until the risk is explicitly resolved.
+
+## Commit Planning
+
+Build the plan from the staged diff only:
+
+```bash
+git -C "$REPO_ROOT" diff --cached --stat
+git -C "$REPO_ROOT" diff --cached
+```
+
+### Planning Rules
+
+Split into multiple commits only when the staged snapshot can be separated safely.
+
+Use **automatic file-level splitting** when changes are clearly independent by file or by tightly related file groups.
+
+Use **hunk-level splitting** only when all of the following are true:
+
+* the file is fully in scope for this run
+* the file has no additional unstaged hunks
+* interactive patch mode is actually supported
+* the split is simple enough to perform reliably
+
+If those conditions are not true, do not pretend to split by hunk.
+
+Fall back in this order:
+
+1. safe file-level split
+2. `--all-in-one`
+3. manual staging and re-run
+
+### `--all-in-one`
+
+If `--all-in-one` is passed, skip split planning and create exactly one commit from the full staged snapshot.
+
+## Commit Message Rules
+
+Generate messages using Conventional Commits:
+
+```text
+<type>(<scope>): <description>
+```
+
+Scope is optional when unnecessary:
+
+```text
+<type>: <description>
+```
+
+### Allowed Types
+
+* `feat`
+* `fix`
+* `docs`
+* `style`
+* `refactor`
+* `perf`
+* `test`
+* `chore`
+* `ci`
+* `revert`
+* `db`
+
+### Message Constraints
+
+* imperative mood
+* concise and specific
+* no trailing period
+* header should fit within 72 characters
+* do not invent scope when no meaningful scope exists
+
+### Examples
+
+* `feat(auth): add refresh token rotation`
+* `fix(api): handle null customer id`
+* `docs: clarify release flow`
+* `chore(eslint): align rules with ci`
+* `db(migration): add user last_login column`
+
+## Confirmation
+
+Present the full plan before creating any commit.
+
+Example:
+
+```text
 Commit plan:
   1. feat(auth): add JWT refresh token support
      → src/auth/refresh.ts, src/auth/refresh.spec.ts
-  2. chore: update eslint config
+  2. chore(eslint): align lint rules with CI
      → .eslintrc.json
 
 How would you like to proceed?
 
-  1. Confirm and execute (recommended)
+  1. Confirm and execute
   2. Edit the plan
   3. Abort
 ```
 
-Wait for the user's choice before executing any git command.
+Wait for explicit confirmation before creating any commit.
 
-## Isolating Commits by Feature (Default Behavior)
+## Commit Execution Workflow
 
-**By default**, split changes into separate commits using worktree isolation. The original branch is never modified until the user explicitly approves.
+For each planned commit:
 
-### When to use worktree isolation
-
-Use worktree isolation whenever the plan has **2 or more commits**. For a single commit (`--all-in-one` or trivially unified changes), commit directly on the current branch.
-
-### Worktree isolation workflow
-
-**Step 1 — Create isolated worktree:**
+### Step 1 — Unstage current index without discarding working tree changes
 
 ```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)
-WORKTREE_PATH="$REPO_ROOT/.git/split/$BRANCH"
-WORKTREE_BRANCH="split/$BRANCH"
-
-git -C "$REPO_ROOT" worktree add "$WORKTREE_PATH" -b "$WORKTREE_BRANCH"
+git -C "$REPO_ROOT" reset
 ```
 
-**Step 2 — Collapse all changes to unstaged in the worktree:**
+### Step 2 — Stage only the current logical group
+
+For file-level grouping:
 
 ```bash
-BASE=$(git -C "$REPO_ROOT" rev-parse HEAD)
-git -C "$WORKTREE_PATH" reset --mixed "$BASE"
+git -C "$REPO_ROOT" add -- <files...>
 ```
 
-**Step 3 — Stage and commit each logical group:**
-
-For files that belong cleanly to one commit:
+For hunk-level grouping, only when safe:
 
 ```bash
-git -C "$WORKTREE_PATH" add src/auth/refresh.ts src/auth/refresh.spec.ts
-git -C "$WORKTREE_PATH" commit --no-verify -m "feat(auth): add JWT refresh token support"
+cd "$REPO_ROOT" && git add -p -- <file>
 ```
 
-For **overlapping files** (same file has hunks belonging to different commits), use `git add -p`. Note: `git add -p` requires a TTY — run it in a single shell block:
+### Step 3 — Refuse empty staged content
 
 ```bash
-cd "$WORKTREE_PATH" && git add -p src/shared/utils.ts
-# stage relevant hunks: y to include, n to skip, s to split, e to edit manually
-git -C "$WORKTREE_PATH" commit --no-verify -m "fix(auth): ..."
-cd "$WORKTREE_PATH" && git add -p src/shared/utils.ts
-git -C "$WORKTREE_PATH" commit --no-verify -m "refactor(shared): ..."
+if git -C "$REPO_ROOT" diff --cached --quiet; then
+  echo "Planned commit has no staged content. Stop and adjust the plan."
+  exit 1
+fi
 ```
 
-Never use `git add -i` — it requires interactive TTY and will hang.
-
-**Step 4 — Verify content integrity before presenting to user:**
+### Step 4 — Create the commit
 
 ```bash
-diff \
-  <(git -C "$REPO_ROOT" diff "$BASE" HEAD) \
-  <(git -C "$WORKTREE_PATH" diff "$BASE" HEAD) \
-&& echo "IDENTICAL" || echo "DIFFERENCES FOUND — investigate before proceeding"
+git -C "$REPO_ROOT" commit -m "<type>(<scope>): <description>"
 ```
 
-Stat matches (`N files changed`) are not sufficient. Always do a full content diff.
+### Step 5 — Repeat for remaining planned commits
 
-**Step 5 — Review gate (mandatory):**
+Repeat until all planned commits are created.
 
-```
-Split complete in isolated worktree.
+### Step 6 — Show leftovers
 
-To review:
-  cd .git/split/<branch>
-  git log --oneline
-
-Original branch is UNCHANGED. Nothing will be applied until you approve.
-
-How would you like to proceed?
-
-  1. Apply to original branch (recommended)
-  2. Adjust — describe what to change
-  3. Discard worktree, keep original branch as-is
-```
-
-Wait for explicit user response. Do not proceed without it.
-
-**Step 6 — Apply back (if approved):**
+After the last commit, show any remaining unstaged or untracked files:
 
 ```bash
-# Check for remote upstream first
-git -C "$REPO_ROOT" branch -vv
-
-# If branch tracks a remote, warn about force-push requirement
-# Then apply:
-git -C "$REPO_ROOT" reset --hard "split/$BRANCH"
-
-# Verify
-git -C "$REPO_ROOT" log --oneline -5
-
-# Cleanup — worktree first, then branch
-git -C "$REPO_ROOT" worktree remove "$WORKTREE_PATH"
-git -C "$REPO_ROOT" branch -D "$WORKTREE_BRANCH"
+git -C "$REPO_ROOT" status --short
 ```
 
-Do NOT run `git checkout $BRANCH` before the reset — the branch is already in use by the main worktree and the checkout will fail.
+Explain that these files were intentionally left out of scope.
 
-**Step 6 — Discard (if cancelled):**
+## Push Behavior
+
+If `--push` is passed, do not push automatically.
+
+After successful commit creation, present:
+
+```text
+Commits created successfully.
+
+Would you like to push now?
+
+  1. Push current branch
+  2. Do not push
+```
+
+If the user chooses to push, run:
 
 ```bash
-git -C "$REPO_ROOT" worktree remove "$WORKTREE_PATH"
-git -C "$REPO_ROOT" branch -D "$WORKTREE_BRANCH"
+git -C "$REPO_ROOT" push origin "$CURRENT_BRANCH"
 ```
 
-### Splitting criteria
+## Safety Rules
 
-- Changes in different modules/features
-- Mix of types (e.g., a bug fix + a new feature + a refactor)
-- Documentation or test changes independent from source changes
-- Config/tooling changes separate from business logic
+* Never use unstaged content as implicit input to commit planning
+* Never silently add unrelated files
+* Never auto-split a file that contains both staged and unstaged changes
+* Never claim hunk-level split succeeded unless the actual staged result matches the intended group
+* Never create a commit without explicit confirmation of the plan
+* Never pass `--no-verify` to `git commit`
+* Never push automatically without explicit user approval
 
-If `--all-in-one` is passed, skip splitting entirely and commit directly on the current branch.
+## Notes
 
-## Pre-commit Checks
-
-By default, run **only lint**:
-
-```bash
-pnpm lint   # or: npm run lint
-```
-
-Do **not** run build before commit — build is validated in CI.
-
-If lint fails, present:
-
-```
-Lint failed. How would you like to proceed?
-
-  1. Fix issues and re-run lint before committing (recommended)
-  2. Skip lint and commit anyway
-  3. Abort
-```
-
-## Post-Commit: Push Offer
-
-After all commits are done, present:
-
-```
-All commits created. What would you like to do next?
-
-  1. Push to remote (recommended)
-  2. Keep commits local for now
-  3. Amend the last commit before pushing
-```
-
-If the user chooses push:
-
-- Run `git -C "$REPO_ROOT" push`
-- If the branch has no upstream: `git -C "$REPO_ROOT" push --set-upstream origin <branch>`
-- Report success or errors
-
-## Command Options
-
-- `--no-verify`: Skip lint check. Note: this does **not** skip the Husky `commit-msg` hook — that hook runs at the git level and validates commit message format independently. To also skip the hook, the user must pass `-n` to git directly, which is outside the scope of this command.
-- `--all-in-one`: Skip feature isolation, commit directly on current branch without worktree
-
-## Important Notes
-
-- Never include `Co-authored-by`, model signatures, or any trailers in any commit
-- `wip` is not a valid commit type — wip commits must not reach the repository. Use a local stash or a feature branch instead
-- Versioning and changelog are fully automated by the CI pipeline (semantic-release) on push to `main`. Never bump versions or edit `CHANGELOG.md` manually
-- Worktree cleanup is mandatory — leaving worktrees around pollutes the repo. Always clean up in Step 6 regardless of outcome
+* This command assumes commit hooks already exist
+* Repository hooks validate actual commit acceptance at commit time
+* This command generates commit plans and messages, but should not claim that every repository policy is enforced unless the repository hook truly enforces it
