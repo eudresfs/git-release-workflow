@@ -1,6 +1,6 @@
 ---
 description: Set up commit hooks and semantic-release for this repository
-allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git rev-parse:*), Bash(git branch:*), Bash(git symbolic-ref:*), Bash(cat:*), Bash(node:*), Bash(pnpm:*), Bash(npm:*), Bash(bun:*), Bash(mkdir:*), Bash(chmod:*), Bash(test:*), Bash(rg:*), Bash(ls:*)
+allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git rev-parse:*), Bash(git branch:*), Bash(git symbolic-ref:*), Bash(cat:*), Bash(node:*), Bash(pnpm:*), Bash(npm:*), Bash(bun:*), Bash(mkdir:*), Bash(chmod:*), Bash(test:*), Bash(rg:*), Bash(ls:*), AskUserQuestion
 ---
 
 # /setup-release
@@ -47,17 +47,10 @@ RELEASE_BRANCH="${REMOTE_HEAD#refs/remotes/origin/}"
 
 If the current branch is not the detected release branch, present:
 
-```text id="pc33zg"
-You are not on the release branch.
+Use `AskUserQuestion` with header "Branch" and question mentioning current vs release branch. Options:
 
-Current branch: <current-branch>
-Release branch: <release-branch>
-
-How would you like to proceed?
-
-  1. Continue on the current branch
-  2. Abort
-```
+* **Continue** — "Continue on the current branch"
+* **Abort** — "Cancel the setup"
 
 Only continue if the user explicitly chooses to continue.
 
@@ -132,16 +125,10 @@ If a managed file already exists and is compatible, print:
 <filename> already exists and is compatible — skipping
 ```
 
-If a managed file already exists and is incompatible, stop and present:
+If a managed file already exists and is incompatible, stop and use `AskUserQuestion` with header "Conflict" and question mentioning the filename. Options:
 
-```text id="94xucw"
-<filename> already exists but is incompatible with this setup.
-
-How would you like to proceed?
-
-  1. Abort and review manually
-  2. Show the expected content
-```
+* **Abort** — "Abort and review manually"
+* **Show expected** — "Show the expected content so I can compare"
 
 Do not overwrite incompatible files silently.
 
@@ -183,16 +170,10 @@ Ensure `package.json` contains:
 }
 ```
 
-If `scripts.prepare` already exists and does not include `husky`, stop and present:
+If `scripts.prepare` already exists and does not include `husky`, stop and use `AskUserQuestion` with header "Prepare" and options:
 
-```text id="hy4ck0"
-package.json already has a prepare script that does not match this setup.
-
-How would you like to proceed?
-
-  1. Abort and update package.json manually
-  2. Show the expected change
-```
+* **Abort** — "Abort and update package.json manually"
+* **Show expected** — "Show the expected change so I can compare"
 
 Do not silently overwrite unrelated prepare logic.
 
@@ -447,17 +428,11 @@ git -C "$REPO_ROOT" add -- package.json commitlint.config.js .releaserc.json .gi
 
 ## Final Commit
 
-After staging, present:
+After staging, use `AskUserQuestion` with header "Setup" and options:
 
-```text id="kkocd7"
-Release setup is ready.
-
-How would you like to proceed?
-
-  1. Create commit now
-  2. Review changes manually
-  3. Abort
-```
+* **Commit** — "Create commit now"
+* **Review** — "Review changes manually before committing"
+* **Abort** — "Cancel the setup"
 
 If the user chooses to commit, run:
 

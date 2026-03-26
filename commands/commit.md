@@ -1,6 +1,6 @@
 ---
 description: Create safe, conventional commits from the current staged snapshot
-allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git log:*), Bash(git push:*), Bash(git reset:*), Bash(git rev-parse:*), Bash(git grep:*), Bash(node:*), Bash(pnpm:*), Bash(npm:*), Bash(bun:*), Bash(cat:*), Bash(diff:*), Bash(rg:*), Bash(mktemp:*)
+allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git log:*), Bash(git push:*), Bash(git reset:*), Bash(git rev-parse:*), Bash(git grep:*), Bash(node:*), Bash(pnpm:*), Bash(npm:*), Bash(bun:*), Bash(cat:*), Bash(diff:*), Bash(rg:*), Bash(mktemp:*), AskUserQuestion
 ---
 
 # /commit
@@ -102,17 +102,11 @@ No lint script found — skipping command-level lint.
 
 Do not use fallback chains like `pnpm lint || npm run lint`.
 
-If lint fails, present:
+If lint fails, use `AskUserQuestion` with header "Lint" and options:
 
-```text
-Lint failed.
-
-How would you like to proceed?
-
-  1. Fix issues and re-run /commit
-  2. Continue anyway
-  3. Abort
-```
+* **Fix and re-run** — "Fix issues and re-run /commit"
+* **Continue anyway** — "Proceed despite lint failures"
+* **Abort** — "Cancel the commit"
 
 Only continue if the user explicitly chooses to continue.
 
@@ -134,17 +128,13 @@ List modified and untracked files:
 git -C "$REPO_ROOT" status --short
 ```
 
-Then present:
+Then use `AskUserQuestion` with header "Staging" and options:
 
-```text
-No files are staged. How would you like to proceed?
+* **Stage all** — "Stage all listed files and continue"
+* **Stage manually** — "Let me stage files manually, then re-run"
+* **Abort** — "Cancel the commit"
 
-  1. Stage all listed files and continue
-  2. Let me stage files manually, then re-run
-  3. Abort
-```
-
-If the user chooses option 1, run:
+If the user chooses "Stage all", run:
 
 ```bash
 git -C "$REPO_ROOT" add -A
@@ -167,21 +157,13 @@ If any file path appears in both outputs, that file contains both staged and uns
 
 In that case, automatic split is unsafe because re-staging from the working tree could accidentally include unstaged hunks.
 
-Stop and present:
+Stop and use `AskUserQuestion` with header "Overlap" and options:
 
-```text
-Some files contain both staged and unstaged changes.
+* **Fix manually** — "Finish staging/discarding changes in those files, then re-run"
+* **Single commit** — "Commit the current staged snapshot as a single commit"
+* **Abort** — "Cancel the commit"
 
-Automatic split would be unsafe because re-staging from the working tree could pull in unstaged hunks.
-
-How would you like to proceed?
-
-  1. I will finish staging/discarding changes in those files, then re-run
-  2. Commit the current staged snapshot as a single commit
-  3. Abort
-```
-
-If the user chooses option 2, force `--all-in-one` behavior for this run.
+If the user chooses "Single commit", force `--all-in-one` behavior for this run.
 
 ## Secrets Check
 
@@ -211,17 +193,11 @@ Inspect staged content from the index only:
 git -C "$REPO_ROOT" grep --cached -n -I -E 'sk-|ghp_|xoxb-|AKIA' -- .
 ```
 
-If a risky file or token-like pattern is detected, stop and present:
+If a risky file or token-like pattern is detected, stop and use `AskUserQuestion` with header "Secret" and question mentioning the filename. Options:
 
-```text
-Potential secret detected: <filename>
-
-How would you like to proceed?
-
-  1. Exclude this file and continue
-  2. Review the file content before deciding
-  3. Abort
-```
+* **Exclude file** — "Exclude this file and continue"
+* **Review first** — "Review the file content before deciding"
+* **Abort** — "Cancel the commit"
 
 Do not continue until the risk is explicitly resolved.
 
@@ -305,23 +281,13 @@ Scope is optional when unnecessary:
 
 ## Confirmation
 
-Present the full plan before creating any commit.
+Present the full commit plan as a text summary, then use `AskUserQuestion` with header "Commit" and options:
 
-Example:
+* **Confirm** — "Execute the commit plan as shown"
+* **Edit plan** — "Let me adjust the plan before committing"
+* **Abort** — "Cancel the commit"
 
-```text
-Commit plan:
-  1. feat(auth): add JWT refresh token support
-     → src/auth/refresh.ts, src/auth/refresh.spec.ts
-  2. chore(eslint): align lint rules with CI
-     → .eslintrc.json
-
-How would you like to proceed?
-
-  1. Confirm and execute
-  2. Edit the plan
-  3. Abort
-```
+Use the `preview` field on the "Confirm" option to show the commit plan (messages + files).
 
 Wait for explicit confirmation before creating any commit.
 
@@ -382,18 +348,12 @@ Explain that these files were intentionally left out of scope.
 
 If `--push` is passed, do not push automatically.
 
-After successful commit creation, present:
+After successful commit creation, use `AskUserQuestion` with header "Push" and options:
 
-```text
-Commits created successfully.
+* **Push** — "Push current branch to origin"
+* **Skip** — "Do not push"
 
-Would you like to push now?
-
-  1. Push current branch
-  2. Do not push
-```
-
-If the user chooses to push, run:
+If the user chooses "Push", run:
 
 ```bash
 git -C "$REPO_ROOT" push origin "$CURRENT_BRANCH"

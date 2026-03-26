@@ -46,46 +46,24 @@ If a push to the configured release branch contains no release-relevant commits 
 
 ## Interaction Model
 
-This skill must prefer **interactive prompts with selectable options** over free-form text input whenever a decision can be expressed as a finite set of choices.
+This skill **must** use the `AskUserQuestion` tool for all interactive decisions. Never present options as plain text — always use the native selection prompt.
 
 ### Prompting Rules
 
-* Prefer **selection prompts** for confirmations, branch choices, conflict handling, staging decisions, lint failures, push decisions, and any other bounded decision
-* Use free-form text input only when the user must provide information that cannot be represented as a small fixed option set
-* When presenting options, always number them clearly
-* Default to an **interactive prompt** even if free-form input would also work
-* Do not ask the user to type an exact value when the command can instead present valid choices directly
-* If an operation can be safely continued, edited, skipped, retried, or aborted, present those as selectable options
+* **Always use `AskUserQuestion`** for confirmations, branch choices, conflict handling, staging decisions, lint failures, push decisions, and any other bounded decision
+* Use free-form text input only when the user must provide information that cannot be represented as a small fixed option set (e.g., a custom commit message)
+* If an operation can be safely continued, edited, skipped, retried, or aborted, present those as selectable options via `AskUserQuestion`
 
-### Preferred Format
+### When to Use `AskUserQuestion`
 
-Use prompts like:
-
-```text
-How would you like to proceed?
-
-  1. Confirm and continue
-  2. Edit the plan
-  3. Abort
-```
-
-Instead of prompts like:
-
-```text
-Type the commit type:
-Type the branch name:
-Type yes to continue:
-```
-
-### Examples of When to Use Selection Prompts
-
-Use selection prompts for:
+Use it for:
 
 * continue / abort decisions
 * choosing whether to stage all files
 * choosing whether to proceed after lint failure
 * choosing whether to push after commit creation
 * choosing between single-commit mode and split mode
+* confirming commit plans
 * handling detected secrets or incompatible setup files
 * choosing whether to continue on a non-release branch
 
@@ -97,7 +75,7 @@ Use free-form input only for information such as:
 * a manually edited commit plan
 * content that cannot be predicted or enumerated safely
 
-When both approaches are possible, prefer the selection-based interactive prompt.
+When both approaches are possible, prefer `AskUserQuestion`.
 
 ## Command Reference
 
